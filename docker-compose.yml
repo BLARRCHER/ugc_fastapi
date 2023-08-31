@@ -1,0 +1,285 @@
+version: '3.7'
+services:
+  zookeeper-1:
+    image: confluentinc/cp-zookeeper:7.3.0
+    container_name: zookeeper-1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_1_data:/var/lib/zookeeper/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  broker-1:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker-1
+    depends_on:
+      - zookeeper-1
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ADVERTISED_LISTENERS: INSIDE_DOCKER://broker-1:9092,ON_HOST://localhost:39092,INTERNAL://broker-1:29092
+    env_file:
+      - .env
+    volumes:
+      - broker_1_data:/var/lib/kafka/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  broker-2:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker-2
+    depends_on:
+      - zookeeper-1
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ADVERTISED_LISTENERS: INSIDE_DOCKER://broker-2:9093,ON_HOST://localhost:39093,INTERNAL://broker-2:29093
+    env_file:
+      - .env
+    volumes:
+      - broker_2_data:/var/lib/kafka/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  broker-3:
+    image: confluentinc/cp-kafka:7.3.0
+    container_name: broker-3
+    depends_on:
+      - zookeeper-1
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ADVERTISED_LISTENERS: INSIDE_DOCKER://broker-3:9094,ON_HOST://localhost:39094,INTERNAL://broker-3:29094
+    env_file:
+      - .env
+    volumes:
+      - broker_3_data:/var/lib/kafka/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  etl_kafka:
+    image: etl_kafka
+    restart: "always"
+    container_name: etl_kafka
+    env_file:
+      - .env
+    depends_on:
+      - broker-1
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  zookeeper:
+    image: zookeeper:3.5
+    container_name: zookeeper
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  clickhouse-node1:
+    image: yandex/clickhouse-server:21.3
+    container_name: clickhouse-node1
+    hostname: clickhouse-node1
+    volumes:
+      - ./etl/data/node1:/etc/clickhouse-server
+      - clickhouse_1_data:/var/lib/clickhouse/
+    depends_on:
+      - zookeeper
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  clickhouse-node2:
+    image: yandex/clickhouse-server:21.3
+    container_name: clickhouse-node2
+    hostname: clickhouse-node2
+    volumes:
+      - ./etl/data/node2:/etc/clickhouse-server
+      - clickhouse_2_data:/var/lib/clickhouse/
+    depends_on:
+      - zookeeper
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  clickhouse-node3:
+    image: yandex/clickhouse-server:21.3
+    container_name: clickhouse-node3
+    hostname: clickhouse-node3
+    volumes:
+      - ./etl/data/node3:/etc/clickhouse-server
+      - clickhouse_3_data:/var/lib/clickhouse/
+    depends_on:
+      - zookeeper
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  clickhouse-node4:
+    image: yandex/clickhouse-server:21.3
+    container_name: clickhouse-node4
+    hostname: clickhouse-node4
+    volumes:
+      - ./etl/data/node4:/etc/clickhouse-server
+      - clickhouse_4_data:/var/lib/clickhouse/
+    depends_on:
+      - zookeeper
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  jaeger_agent:
+    image: jaegertracing/all-in-one:1.41
+    container_name: jaeger
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  ugc_service:
+    restart: "always"
+    image: ugc_service
+    container_name: ugc_service
+    env_file:
+        - .env
+    depends_on:
+        - broker-1
+        - broker-2
+        - broker-3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  nginx:
+    image: nginx:1.23.3-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/configs:/etc/nginx/conf.d:ro
+    ports:
+      - "8002:80"
+    depends_on:
+      - logstash
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  filebeat:
+    user: root
+    image: elastic/filebeat:8.6.1
+    command: filebeat -e -strict.perms=false
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - logstash
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  logstash:
+    image: logstash:8.6.1
+    ports:
+      - "5044:5044/udp"
+    volumes:
+      - ./logstash/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - ./logstash/conf:/config:ro
+      - elk_logstash_data:/usr/share/logstash/data
+    command: logstash --config.reload.automatic
+    env_file:
+      - .env
+    depends_on:
+      - elasticsearch
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  elasticsearch:
+    image: elasticsearch:8.6.1
+    ports:
+      - "9200:9200"
+    environment:
+      - xpack.security.enabled=false
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g
+    volumes:
+      - elk_elasticsearch_data:/usr/share/elasticsearch/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  kibana:
+    image: kibana:8.6.1
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: 3
+
+  mongodb_container:
+    image: mongo:latest
+    environment:
+      MONGO_INITDB_DATABASE: prod-db
+      MONGO_INITDB_ROOT_USERNAME: user_name
+      MONGO_INITDB_ROOT_PASSWORD: user_password
+    ports:
+      - 27017:27017
+    volumes:
+      - mongodb_data_container:/data/db
+
+volumes:
+  zookeeper_1_data:
+  broker_1_data:
+  broker_2_data:
+  broker_3_data:
+  zookeeper_data:
+  clickhouse_1_data:
+  clickhouse_2_data:
+  clickhouse_3_data:
+  clickhouse_4_data:
+  elk_logstash_data:
+  elk_elasticsearch_data:
+  mongodb_data_container:
